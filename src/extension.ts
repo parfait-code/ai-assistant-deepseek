@@ -1,26 +1,68 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { ConfigurationManager } from './services/configurationManager';
+import { Logger } from './utils/logger';
+import { ErrorHandler } from './utils/errorHandler';
+import { DeepSeekClient } from './services/deepseekClient';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+let configManager: ConfigurationManager;
+let deepseekClient: DeepSeekClient;
+let logger: Logger;
+let errorHandler: ErrorHandler;
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "ai-assistant-deepseek" is now active!');
+export async function activate(context: vscode.ExtensionContext) {
+	logger = new Logger('AI Assistant');
+	errorHandler = new ErrorHandler(logger);
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('ai-assistant-deepseek.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from AI Assistant with DeepSeek!');
-	});
+	try {
+		logger.info('Activating AI Assistant extension...');
 
-	context.subscriptions.push(disposable);
+		// Initialize core services
+		configManager = new ConfigurationManager();
+		deepseekClient = new DeepSeekClient(configManager, logger);
+
+		// Validate configuration on startup
+		await validateConfiguration();
+
+		// Register core services in context for global access
+		context.globalState.update('services', {
+			configManager,
+			deepseekClient,
+			logger,
+			errorHandler
+		});
+
+		// Show activation message
+		vscode.window.showInformationMessage('AI Assistant is now active!');
+
+		logger.info('AI Assistant extension activated successfully');
+
+	} catch (error) {
+		errorHandler.handleError(error, 'Failed to activate extension');
+		throw error;
+	}
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+	logger?.info('Deactivating AI Assistant extension...');
+
+	// Cleanup resources
+	deepseekClient?.dispose();
+	configManager?.dispose();
+
+	logger?.info('AI Assistant extension deactivated');
+}
+
+async function validateConfiguration(): Promise<void> {
+	const isValid = await configManager.validateConfiguration();
+	if (!isValid) {
+		const action = await vscode.window.showWarningMessage(
+			'AI Assistant configuration is incomplete. Would you like to configure it now?',
+			'Configure',
+			'Later'
+		);
+
+		if (action === 'Configure') {
+			vscode.commands.executeCommand('workbench.action.openSettings', 'aiAssistant');
+		}
+	}
+}
